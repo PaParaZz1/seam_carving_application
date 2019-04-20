@@ -4,11 +4,14 @@ import random
 import time
 
 
+TIME = True
+
 def time_log(func):
     def warp_func(*args, **kwargs):
         t0 = time.time()
         result = func(*args, **kwargs)
-        print("%s execute in %.4f s" % (func.__name__, time.time()-t0))
+        if TIME:
+            print("%s execute in %.4f s" % (func.__name__, time.time()-t0))
         return result
     return warp_func
 
@@ -30,7 +33,6 @@ class SeamCarving(object):
             img = np.copy(x)
             img = cv2.GaussianBlur(img, (3, 3), 0)
             canny = cv2.Canny(img, 50, 150)
-            cv2.imwrite('canny.png', canny)
             return canny
 
         self.energy_func_dict = {'gradient_L1': gradient_L1,
@@ -165,89 +167,83 @@ class SeamCarving(object):
             raise ValueError
         cv2.imwrite('seam.png', img)
 
+    @time_log
+    def generate_seams(self, img, vis_direction=None, DEBUG=False, **kwargs):
+        energy_map = self.energy_func(img.astype(np.uint8)).astype(np.float32)
+        seams = self.search_path(energy_map, **kwargs)
+        if DEBUG:
+            assert(vis_direction is not None)
+            self.visualize_seam(img, seams, vis_direction)
+        return seams
+
+    @time_log
+    def delete_seams(self, img, seams, flag_constant=0, DEBUG=True):
+        H, W, C = img.shape
+        for item in seams:
+            for h in range(H):
+                if img[h, item[h], 0] == flag_constant:
+                    offset = 0
+                    while(img[h, item[h]+offset, 0] == flag_constant):
+                        offset += 1
+                    img[h, item[h]+offset] = flag_constant
+                else:
+                    img[h, item[h]] = flag_constant
+        delete_idx = np.where(img != flag_constant)
+        img = img[delete_idx].reshape(H, W-len(seams), 3)
+        if DEBUG:
+            print(img.shape)
+        return img
+
+    @time_log
+    def add_seams(self, img, seams, DEBUG=True):
+        H, W, C = img.shape
+        L = len(seams)
+        img_expand = np.zeros((H, W+L, 3))
+        for h in range(H):
+            idx = 0
+            repeat_count = 0
+            for i in range(L):
+                val = seams[i][h]
+                img_expand[h, idx+i:val+i+1] = img[h, idx:val+1]
+                if idx == val:
+                    repeat_count += 1
+                    img_expand[h, val+i+1+repeat_count] = np.average(img[h, val:val+2])
+                else:
+                    repeat_count = 0
+                    img_expand[h, val+i+1] = np.average(img[h, val:val+2])
+                idx = val
+            img_expand[h, idx+L+1:] = img[h, idx+1:]
+        if DEBUG:
+            print(img_expand.shape)
+        return img_expand
+
+    @time_log
     def __call__(self, img, check_overlap=False):
 
         assert(isinstance(img, np.ndarray))
         H, W, C = img.shape
 
         misalign = np.copy(img).astype(np.float32) + 0.01
+        vertical_change = np.random.randint(self.vertical_change_range[0], self.vertical_change_range[1])
+        horizontal_change = np.random.randint(self.horizontal_change_range[0], self.horizontal_change_range[1])
 
         # forward(reduce)
-        energy_map = self.energy_func(misalign.astype(np.uint8)).astype(np.float32)
-        vertical_change = np.random.randint(self.vertical_change_range[0], self.vertical_change_range[1])
-        vertical_seams = self.search_path(energy_map, min_num=vertical_change, check_overlap=check_overlap)
-        self.visualize_seam(misalign, vertical_seams, 'V')
-
-        for item in vertical_seams:
-            for h in range(H):
-                if misalign[h, item[h], 0] == 0:
-                    offset = 0
-                    while(misalign[h, item[h]+offset, 0] == 0):
-                        offset += 1
-                    misalign[h, item[h]+offset] = 0
-                else:
-                    misalign[h, item[h]] = 0
-        misalign_h_idx = np.where(misalign != 0)
-        misalign = misalign[misalign_h_idx].reshape(H, W-len(vertical_seams), 3)
-        print(misalign.shape)
-        W -= len(vertical_seams)
+        vertical_seams = self.generate_seams(misalign, 'V', min_num=vertical_change, check_overlap=check_overlap)
+        misalign = self.delete_seams(misalign, vertical_seams)
 
         misalign = misalign.transpose(1, 0, 2)
-        energy_map = self.energy_func(misalign.astype(np.uint8)).astype(np.float32)
-        horizontal_change = np.random.randint(self.horizontal_change_range[0], self.horizontal_change_range[1])
-        horizontal_seams = self.search_path(energy_map, min_num=horizontal_change, check_overlap=check_overlap)
-
-        for item in horizontal_seams:
-            for w in range(W):
-                if misalign[w, item[w], 0] == 0:
-                    offset = 0
-                    while(misalign[w, item[w]+offset, 0] == 0):
-                        offset += 1
-                    misalign[w, item[w]+offset] = 0
-                else:
-                    misalign[w, item[w]] = 0
-        misalign_w_idx = np.where(misalign != 0)
-        misalign = misalign[misalign_w_idx].reshape(W, H-len(horizontal_seams), 3)
+        horizontal_seams = self.generate_seams(misalign, 'H', min_num=horizontal_change, check_overlap=check_overlap)
+        misalign = self.delete_seams(misalign, horizontal_seams)
         misalign = misalign.transpose(1, 0, 2)
-        print(misalign.shape)
-        H -= len(horizontal_seams)
 
         # backward(expand)
+        vertical_seams = self.generate_seams(misalign, 'V', min_num=vertical_change, check_overlap=False)
+        misalign = self.add_seams(misalign, vertical_seams)
 
-        energy_map = self.energy_func(misalign.astype(np.uint8)).astype(np.float32)
-        vertical_seams = self.search_path(energy_map, min_num=vertical_change, check_overlap=False)
-
-        misalign_expand = np.zeros((H, W+vertical_change, 3))
-        for h in range(H):
-            idx = 0
-            for i in range(len(vertical_seams)):
-                val = vertical_seams[i][h]
-                misalign_expand[h, idx+i:val+i] = misalign[h, idx:val]
-                misalign_expand[h, val+i] = misalign[h, val]
-                idx = val
-            misalign_expand[h, idx+len(vertical_seams):] = misalign[h, idx:]
-        W += len(vertical_seams)
-
-        print(misalign_expand.shape)
-
-        misalign = misalign_expand
         misalign = misalign.transpose(1, 0, 2)
-
-        energy_map = self.energy_func(misalign.astype(np.uint8)).astype(np.float32)
-        horizontal_seams = self.search_path(energy_map, min_num=horizontal_change, check_overlap=False)
-
-        misalign_expand = np.zeros((W, H+horizontal_change, 3))
-        for w in range(W):
-            idx = 0
-            for i in range(len(horizontal_seams)):
-                val = horizontal_seams[i][w]
-                misalign_expand[w, idx+i:val+i] = misalign[w, idx:val]
-                misalign_expand[w, val+i] = misalign[w, val]
-                idx = val
-            misalign_expand[w, idx+len(horizontal_seams):] = misalign[w, idx:]
-        H += len(horizontal_seams)
-        misalign = misalign_expand.transpose(1, 0, 2)
-        print(misalign.shape)
+        horizontal_seams = self.generate_seams(misalign, 'H', min_num=horizontal_change, check_overlap=False)
+        misalign = self.add_seams(misalign, horizontal_seams)
+        misalign = misalign.transpose(1, 0, 2)
 
         return misalign
 
@@ -265,8 +261,7 @@ def seam_carving_interface(input_path, output_path, DEBUG=True):
 
 
 if __name__ == "__main__":
-    #input_path = '../../data/image_input.png'
+    #input_path = '/Users/nyz/code/github/seam_carving/data/image_input.png'
     input_path = 'jun1.jpg'
     output_path = input_path.split('.')[0]+'_misalign.'+input_path.split('.')[1]
-    print(output_path)
     seam_carving_interface(input_path, output_path)
