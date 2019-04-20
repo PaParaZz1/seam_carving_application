@@ -6,6 +6,7 @@ import time
 
 TIME = True
 
+
 def time_log(func):
     def warp_func(*args, **kwargs):
         t0 = time.time()
@@ -17,7 +18,7 @@ def time_log(func):
 
 
 class SeamCarving(object):
-    def __init__(self, energy_func='gradient_canny',
+    def __init__(self, energy_func='gradient_L1',
                  horizontal_change_range=(3, 6),
                  vertical_change_range=(3, 6)):
 
@@ -45,13 +46,14 @@ class SeamCarving(object):
 
         self.horizontal_change_range = horizontal_change_range
         self.vertical_change_range = vertical_change_range
+        self.count = 0
 
     def search_path(self, energy, min_num=3, check_overlap=True, sample_factor=2):
         # path: '0', left down
         #       '1', down
         #       '2', right down
-
-        energy_map = np.copy(energy)
+        H, W = energy.shape
+        energy_map = np.copy(energy) + np.random.randn(H, W).clip(-1)+1
         dp_array = np.zeros_like(energy_map)
         path_array = np.zeros_like(energy_map)
 
@@ -59,15 +61,19 @@ class SeamCarving(object):
 
         @time_log
         def min_sum_path(dp_array, path_array):
+            self.count = 0
 
             def min_func(x):
                 val = x.min()
-                indexs = np.where(x == val)[0]
-                index = indexs[np.random.randint(0, indexs.shape[0])]
+                index = x.argmin()
+                #indexs = np.where(x == val)[0]
+                #index = indexs[np.random.randint(0, indexs.shape[0])]
                 #index = indexs[indexs.shape[0]//2]
                 #index = indexs[0]
                 #x += np.random.randn(x.shape[0])
                 #index = x.argmin()
+                #index = indexs[self.count%indexs.shape[0]]
+                #self.count += 1
                 return val, index
 
             dp_array = energy_map
@@ -168,7 +174,7 @@ class SeamCarving(object):
         cv2.imwrite('seam.png', img)
 
     @time_log
-    def generate_seams(self, img, vis_direction=None, DEBUG=False, **kwargs):
+    def generate_seams(self, img, vis_direction=None, DEBUG=True, **kwargs):
         energy_map = self.energy_func(img.astype(np.uint8)).astype(np.float32)
         seams = self.search_path(energy_map, **kwargs)
         if DEBUG:
@@ -206,8 +212,8 @@ class SeamCarving(object):
                 val = seams[i][h]
                 img_expand[h, idx+i:val+i+1] = img[h, idx:val+1]
                 if idx == val:
-                    repeat_count += 1
                     img_expand[h, val+i+1+repeat_count] = np.average(img[h, val:val+2])
+                    repeat_count += 1
                 else:
                     repeat_count = 0
                     img_expand[h, val+i+1] = np.average(img[h, val:val+2])
