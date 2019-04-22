@@ -50,6 +50,7 @@ class SeamCarving(object):
         self.vertical_change_range = vertical_change_range
         self.count = 0
 
+    @time_log
     def search_path(self, energy, min_num=3, check_overlap=True, sample_factor=2):
         # path: '0', left down
         #       '1', down
@@ -170,6 +171,88 @@ class SeamCarving(object):
         seams = sorted(seams)
         return seams
 
+    @time_log
+    def search_path_torch(self, energy, min_num=3, check_overlap=True, sample_factor=2):
+        # path: '0', left down
+        #       '1', down
+        #       '2', right down
+        H, W = energy.shape
+        energy_map = torch.from_numpy(energy) + torch.randn(H, W).clamp(-1) + 1
+        dp_array = energy_map
+        path_array = torch.zeros_like(energy_map)
+
+
+        @time_log
+        def min_sum_path_torch(dp_array, path_array, MAX_VAL=99999999):
+            for h in range(1, H):
+                unfold = F.unfold(dp_array[h-1].view(1,1,1,-1), kernel_size=(1,3), stride=1, padding=0)
+                unfold = unfold.squeeze()
+                val, index = unfold.min(dim=0)
+                dp_array[h, 1:W-1] += val
+                path_array[h, 1:W-1] = index
+                dp_array[h, 0] = MAX_VAL
+                dp_array[h, W-1] = MAX_VAL
+            return dp_array.numpy(), path_array.numpy()
+
+        def get_seam(idx):
+            result = []
+            result.append(idx)
+            cur_idx = idx
+            for h in range(energy_map.shape[0]-1, 0, -1):
+                if path_array[h, cur_idx] == 0:
+                    cur_idx -= 1
+                elif path_array[h, cur_idx] == 1:
+                    cur_idx = cur_idx
+                elif path_array[h, cur_idx] == 2:
+                    cur_idx += 1
+                result.append(cur_idx)
+            result.reverse()
+            return result
+
+        def repeat_check(src_list):
+            L = len(src_list[0])
+            dst_list = []
+            dst_list.append(src_list[0])
+            for i in range(1, len(src_list)):
+                src_begin = src_list[i][0]
+                src_mid = src_list[i][L//2]
+                src_end = src_list[i][L-1]
+                check_flag = True
+                for item in dst_list:
+                    dst_begin = item[0]
+                    dst_mid = item[L//2]
+                    dst_end = item[L-1]
+                    if (src_begin-dst_begin)*(src_mid-dst_mid) <= 0:
+                        check_flag = False
+                        break
+                    if (src_mid-dst_mid)*(src_end-dst_end) <= 0:
+                        check_flag = False
+                        break
+                if check_flag:
+                    dst_list.append(src_list[i])
+
+            return dst_list
+
+        dp_array, path_array = min_sum_path_torch(dp_array, path_array)
+
+        sample_num = (int)(min_num*sample_factor)
+        divide_range = W // sample_num - 1
+        min_num_index = []
+        for i in range(sample_num):
+            min_num_index.append(dp_array[-1, i*divide_range:(i+1)*divide_range].argmin()+i*divide_range)
+        # min_num_index = np.argpartition(dp_array[-1], -sample_num)[0:sample_num]
+        min_num_index = np.array(min_num_index)
+        min_num_index = min_num_index[random.sample(range(sample_num), min_num)]
+
+        seams = []
+        for i in range(min_num):
+            seams.append(get_seam(min_num_index[i]))
+
+        if check_overlap:
+            seams = repeat_check(seams)
+        seams = sorted(seams)
+        return seams
+
     def visualize_seam(self, origin_img, seams, direction=None):
         assert(isinstance(origin_img, np.ndarray))
         img = np.copy(origin_img)
@@ -191,9 +274,10 @@ class SeamCarving(object):
         cv2.imwrite('seam.png', img)
 
     @time_log
-    def generate_seams(self, img, vis_direction=None, DEBUG=True, **kwargs):
+    def generate_seams(self, img, vis_direction=None, DEBUG=False, **kwargs):
         energy_map = self.energy_func(img.astype(np.uint8)).astype(np.float32)
-        seams = self.search_path(energy_map, **kwargs)
+        seams = self.search_path_torch(energy_map, **kwargs)
+        #seams = self.search_path(energy_map, **kwargs)
         if DEBUG:
             assert(vis_direction is not None)
             self.visualize_seam(img, seams, vis_direction)
@@ -287,4 +371,5 @@ if __name__ == "__main__":
     #input_path = '/Users/nyz/code/github/seam_carving/data/image_input.png'
     input_path = 'jun2.jpg'
     output_path = input_path.split('.')[0]+'_misalign.'+input_path.split('.')[1]
+    seam_carving_interface(input_path, output_path)
     seam_carving_interface(input_path, output_path)
