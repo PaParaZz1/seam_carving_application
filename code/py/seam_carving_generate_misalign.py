@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import random
 import time
+import torch
+import torch.nn.functional as F
 
 
 TIME = True
@@ -18,9 +20,9 @@ def time_log(func):
 
 
 class SeamCarving(object):
-    def __init__(self, energy_func='gradient_L1',
-                 horizontal_change_range=(3, 6),
-                 vertical_change_range=(3, 6)):
+    def __init__(self, energy_func='gradient_canny',
+                 horizontal_change_range=(5, 8),
+                 vertical_change_range=(5, 8)):
 
         def gradient_L1(x):
             x = np.copy(x)
@@ -64,8 +66,8 @@ class SeamCarving(object):
             self.count = 0
 
             def min_func(x):
-                val = x.min()
                 index = x.argmin()
+                val = x[index]
                 #indexs = np.where(x == val)[0]
                 #index = indexs[np.random.randint(0, indexs.shape[0])]
                 #index = indexs[indexs.shape[0]//2]
@@ -93,6 +95,20 @@ class SeamCarving(object):
                         dp_array[h, w] += val
                         path_array[h, w] = index
             return dp_array, path_array
+
+        @time_log
+        def min_sum_path_torch(dp_array, path_array, MAX_VAL=99999999):
+            dp_array = torch.from_numpy(energy_map)
+            path_array = torch.from_numpy(path_array)
+            for h in range(1, H):
+                unfold = F.unfold(dp_array[h-1].view(1,1,1,-1), kernel_size=(1,3), stride=1, padding=0)
+                unfold = unfold.squeeze()
+                val, index = unfold.min(dim=0)
+                dp_array[h, 1:W-1] += val
+                path_array[h, 1:W-1] = index
+            dp_array[-1, 0] = MAX_VAL
+            dp_array[-1, -1] = MAX_VAL
+            return dp_array.numpy(), path_array.numpy()
 
         def get_seam(idx):
             result = []
@@ -133,7 +149,7 @@ class SeamCarving(object):
 
             return dst_list
 
-        dp_array, path_array = min_sum_path(dp_array, path_array)
+        dp_array, path_array = min_sum_path_torch(dp_array, path_array)
 
         sample_num = (int)(min_num*sample_factor)
         divide_range = W // sample_num - 1
@@ -174,7 +190,7 @@ class SeamCarving(object):
         cv2.imwrite('seam.png', img)
 
     @time_log
-    def generate_seams(self, img, vis_direction=None, DEBUG=True, **kwargs):
+    def generate_seams(self, img, vis_direction=None, DEBUG=False, **kwargs):
         energy_map = self.energy_func(img.astype(np.uint8)).astype(np.float32)
         seams = self.search_path(energy_map, **kwargs)
         if DEBUG:
