@@ -106,8 +106,8 @@ class SeamCarving(object):
                 val, index = unfold.min(dim=0)
                 dp_array[h, 1:W-1] += val
                 path_array[h, 1:W-1] = index
-            dp_array[-1, 0] = MAX_VAL
-            dp_array[-1, -1] = MAX_VAL
+                dp_array[h, 0] = MAX_VAL
+                dp_array[h, W-1] = MAX_VAL
             return dp_array.numpy(), path_array.numpy()
 
         def get_seam(idx):
@@ -150,6 +150,7 @@ class SeamCarving(object):
             return dst_list
 
         dp_array, path_array = min_sum_path_torch(dp_array, path_array)
+        #dp_array, path_array = min_sum_path(dp_array, path_array)
 
         sample_num = (int)(min_num*sample_factor)
         divide_range = W // sample_num - 1
@@ -190,7 +191,7 @@ class SeamCarving(object):
         cv2.imwrite('seam.png', img)
 
     @time_log
-    def generate_seams(self, img, vis_direction=None, DEBUG=False, **kwargs):
+    def generate_seams(self, img, vis_direction=None, DEBUG=True, **kwargs):
         energy_map = self.energy_func(img.astype(np.uint8)).astype(np.float32)
         seams = self.search_path(energy_map, **kwargs)
         if DEBUG:
@@ -284,6 +285,6 @@ def seam_carving_interface(input_path, output_path, DEBUG=True):
 
 if __name__ == "__main__":
     #input_path = '/Users/nyz/code/github/seam_carving/data/image_input.png'
-    input_path = 'jun1.jpg'
+    input_path = 'jun2.jpg'
     output_path = input_path.split('.')[0]+'_misalign.'+input_path.split('.')[1]
     seam_carving_interface(input_path, output_path)
