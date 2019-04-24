@@ -24,22 +24,8 @@ class SeamCarving(object):
                  horizontal_change_range=(5, 8),
                  vertical_change_range=(5, 8)):
 
-        def gradient_L1(x):
-            x = np.copy(x)
-            x = cv2.GaussianBlur(x, (3, 3), 0)
-            x = cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
-            sobel_x = cv2.Sobel(x, cv2.CV_32F, 1, 0, ksize=3)
-            sobel_y = cv2.Sobel(x, cv2.CV_32F, 0, 1, ksize=3)
-            return np.abs(sobel_x) + np.abs(sobel_y)
-
-        def gradient_canny(x):
-            img = np.copy(x)
-            img = cv2.GaussianBlur(img, (3, 3), 0)
-            canny = cv2.Canny(img, 50, 150)
-            return canny
-
-        self.energy_func_dict = {'gradient_L1': gradient_L1,
-                                 'gradient_canny': gradient_canny}
+        self.energy_func_dict = {'gradient_L1': self.gradient_L1,
+                                 'gradient_canny': self.gradient_canny}
 
         if energy_func in self.energy_func_dict.keys():
             self.energy_func = self.energy_func_dict[energy_func]
@@ -49,6 +35,21 @@ class SeamCarving(object):
         self.horizontal_change_range = horizontal_change_range
         self.vertical_change_range = vertical_change_range
         self.count = 0
+
+    def gradient_L1(self, x):
+        x = np.copy(x)
+        x = cv2.GaussianBlur(x, (7, 7), 0)
+        x = cv2.cvtColor(x, cv2.COLOR_BGR2GRAY)
+        sobel_x = cv2.Sobel(x, cv2.CV_32F, 1, 0, ksize=3)
+        sobel_y = cv2.Sobel(x, cv2.CV_32F, 0, 1, ksize=3)
+        return np.abs(sobel_x) + np.abs(sobel_y)
+
+    def gradient_canny(self, x):
+        img = np.copy(x)
+        img = cv2.GaussianBlur(img, (7, 7), 0)
+        canny = cv2.Canny(img, 25, 150)
+        cv2.imwrite('canny.png', canny)
+        return canny
 
     @time_log
     def search_path(self, energy, min_num=3, check_overlap=True, sample_factor=2):
@@ -276,6 +277,7 @@ class SeamCarving(object):
     @time_log
     def generate_seams(self, img, vis_direction=None, DEBUG=False, **kwargs):
         energy_map = self.energy_func(img.astype(np.uint8)).astype(np.float32)
+        print(energy_map.shape)
         seams = self.search_path_torch(energy_map, **kwargs)
         #seams = self.search_path(energy_map, **kwargs)
         if DEBUG:
@@ -285,27 +287,38 @@ class SeamCarving(object):
 
     @time_log
     def delete_seams(self, img, seams, flag_constant=0, DEBUG=True):
-        H, W, C = img.shape
+        if len(img.shape) == 3:
+            H, W, C = img.shape
+        elif len(img.shape) == 2:
+            H, W = img.shape
         for item in seams:
             for h in range(H):
-                if img[h, item[h], 0] == flag_constant:
+                if img[h, item[h]].any() == flag_constant:
                     offset = 0
-                    while(img[h, item[h]+offset, 0] == flag_constant):
+                    while(img[h, item[h]+offset].any() == flag_constant):
                         offset += 1
                     img[h, item[h]+offset] = flag_constant
                 else:
                     img[h, item[h]] = flag_constant
         delete_idx = np.where(img != flag_constant)
-        img = img[delete_idx].reshape(H, W-len(seams), 3)
+        if len(img.shape) == 3:
+            img = img[delete_idx].reshape(H, W-len(seams), 3)
+        elif len(img.shape) == 2:
+            img = img[delete_idx].reshape(H, W-len(seams))
+
         if DEBUG:
             print(img.shape)
         return img
 
     @time_log
     def add_seams(self, img, seams, DEBUG=True):
-        H, W, C = img.shape
         L = len(seams)
-        img_expand = np.zeros((H, W+L, 3))
+        if len(img.shape) == 3:
+            H, W, C = img.shape
+            img_expand = np.zeros((H, W+L, 3))
+        elif len(img.shape) == 2:
+            H, W = img.shape
+            img_expand = np.zeros((H, W+L))
         for h in range(H):
             idx = 0
             repeat_count = 0
@@ -334,7 +347,6 @@ class SeamCarving(object):
         vertical_change = np.random.randint(self.vertical_change_range[0], self.vertical_change_range[1])
         horizontal_change = np.random.randint(self.horizontal_change_range[0], self.horizontal_change_range[1])
 
-        # forward(reduce)
         vertical_seams = self.generate_seams(misalign, 'V', min_num=vertical_change, check_overlap=check_overlap)
         misalign = self.delete_seams(misalign, vertical_seams)
 
@@ -360,18 +372,29 @@ class SeamCarvingRaw(SeamCarving):
         super(SeamCarvingRaw, self).__init__(*args, **kwargs)
 
     @time_log
-    def delete_seams_raw(self, img, seams, flag_constant=0):
+    def delete_seams_raw(self, img, seams, flag_constant=0, DEBUG=True):
         H, W = img.shape
         for item in seams:
-            for h in range(H):
-                if img[h, 2*item[h], 0] == flag_constant:
+            for h in range(H//2):
+                index = item[h]
+                if img[2*h, 2*index] == flag_constant:
                     offset = 0
-                    while(img[h, 2*(item[h]+offset), 0] == flag_constant):
+                    while(img[2*h, 2*(index+offset)] == flag_constant):
                         offset += 1
-                    img[h, 2*(item[h]+offset)] = flag_constant
-                    img[h, 2*(item[h]+offset)+1] = flag_constant
+                    img[2*h, 2*(index+offset)] = flag_constant
+                    img[2*h, 2*(index+offset)+1] = flag_constant
                 else:
-                    img[h, 2*item[h]+1] = flag_constant
+                    img[2*h, 2*index] = flag_constant
+                    img[2*h, 2*index+1] = flag_constant
+                if img[2*h+1, 2*index] == flag_constant:
+                    offset = 0
+                    while(img[2*h+1, 2*(index+offset)] == flag_constant):
+                        offset += 1
+                    img[2*h+1, 2*(index+offset)] = flag_constant
+                    img[2*h+1, 2*(index+offset)+1] = flag_constant
+                else:
+                    img[2*h+1, 2*index] = flag_constant
+                    img[2*h+1, 2*index+1] = flag_constant
         delete_idx = np.where(img != flag_constant)
         img = img[delete_idx].reshape(H, W-2*len(seams))
         if DEBUG:
@@ -379,26 +402,37 @@ class SeamCarvingRaw(SeamCarving):
         return img
 
     @time_log
-    def add_seams_raw(self, img, seams):
+    def add_seams_raw(self, img, seams, DEBUG=True):
         H, W = img.shape
         L = len(seams)
         img_expand = np.zeros((H, W+2*L))
-        for h in range(H):
+        for h in range(H//2):
             idx = 0
             repeat_count = 0
             for i in range(L):
-                val = 2*seams[i][h]
-                img_expand[h, idx+2*i:val+2*i+1] = img[h, idx:val+1]
+                try:
+                    val = 2*seams[i][h]
+                except IndexError:
+                    print('h', h)
+                    print('H', H)
+                    raise IndexError
+                img_expand[2*h, idx+2*i:val+2*i+1] = img[2*h, idx:val+1]
+                img_expand[2*h+1, idx+2*i:val+2*i+1] = img[2*h+1, idx:val+1]
                 if idx == val:
-                    img_expand[h, val+2*(i+repeat_count)+1] = (img[h, val-1] + img[h, val+1])/2.0
-                    img_expand[h, val+2*(i+repeat_count)+2] = (img[h, val] + img[h, val+2])/2.0
+                    img_expand[2*h, val+2*(i+repeat_count)+1] = (img[2*h, val-1] + img[2*h, val+1])/2.0
+                    img_expand[2*h+1, val+2*(i+repeat_count)+1] = (img[2*h+1, val-1] + img[2*h+1, val+1])/2.0
+                    img_expand[2*h, val+2*(i+repeat_count)+2] = (img[2*h, val] + img[2*h, val+2])/2.0
+                    img_expand[2*h+1, val+2*(i+repeat_count)+2] = (img[2*h+1, val] + img[2*h+1, val+2])/2.0
                     repeat_count += 1
                 else:
                     repeat_count = 0
-                    img_expand[h, val+2*i+1] = (img[h, val-1] + img[h, val+1])/2.0
-                    img_expand[h, val+2*i+2] = (img[h, val] + img[h, val+2])/2.0
+                    img_expand[2*h, val+2*i+1] = (img[2*h, val-1] + img[2*h, val+1])/2.0
+                    img_expand[2*h+1, val+2*i+1] = (img[2*h+1, val-1] + img[2*h+1, val+1])/2.0
+                    img_expand[2*h, val+2*i+2] = (img[2*h, val] + img[2*h, val+2])/2.0
+                    img_expand[2*h+1, val+2*i+2] = (img[2*h+1, val] + img[2*h+1, val+2])/2.0
                 idx = val
-            img_expand[h, idx+2*L+1:] = img[h, idx+1:]
+            img_expand[2*h, idx+2*L+1:] = img[2*h, idx+1:]
+            img_expand[2*h+1, idx+2*L+1:] = img[2*h+1, idx+1:]
         if DEBUG:
             print(img_expand.shape)
         return img_expand
@@ -406,11 +440,11 @@ class SeamCarvingRaw(SeamCarving):
     @time_log
     def __call__(self, raw, max_value=1024, check_overlap=False):
         assert(isinstance(raw, np.ndarray))
-        raw = raw / max_value * 255
+        raw = raw / max_value * 255 + 0.01
         H, W = raw.shape
-        img = torch.from_numpy(raw)
-        gray_scale = F.avgpool(img, kernel_size=2, stride=2).numpy()
-        img = img.numpy()
+        img = torch.from_numpy(raw).view(1,1,H,W)
+        gray_scale = F.avg_pool2d(img, kernel_size=2, stride=2).squeeze().numpy()
+        img = img.numpy().squeeze()
 
         misalign = np.copy(gray_scale).astype(np.float32) + 0.01
         vertical_change = np.random.randint(self.vertical_change_range[0], self.vertical_change_range[1])
@@ -421,24 +455,28 @@ class SeamCarvingRaw(SeamCarving):
         misalign = self.delete_seams(misalign, vertical_seams)
         img = self.delete_seams_raw(img, vertical_seams)
 
-        misalign = misalign.transpose(1, 0, 2)
+        misalign = misalign.transpose(1, 0)
+        img = img.transpose(1, 0)
         horizontal_seams = self.generate_seams(misalign, 'H', min_num=horizontal_change, check_overlap=check_overlap)
         misalign = self.delete_seams(misalign, horizontal_seams)
         img = self.delete_seams_raw(img, horizontal_seams)
-        misalign = misalign.transpose(1, 0, 2)
+        img = img.transpose(1, 0)
+        misalign = misalign.transpose(1, 0)
 
         # backward(expand)
         vertical_seams = self.generate_seams(misalign, 'V', min_num=vertical_change, check_overlap=False)
         misalign = self.add_seams(misalign, vertical_seams)
         img = self.add_seams_raw(img, vertical_seams)
 
-        misalign = misalign.transpose(1, 0, 2)
+        misalign = misalign.transpose(1, 0)
+        img = img.transpose(1, 0)
         horizontal_seams = self.generate_seams(misalign, 'H', min_num=horizontal_change, check_overlap=False)
         misalign = self.add_seams(misalign, horizontal_seams)
         img = self.add_seams_raw(img, horizontal_seams)
-        misalign = misalign.transpose(1, 0, 2)
+        img = img.transpose(1, 0)
+        misalign = misalign.transpose(1, 0)
 
-        return img
+        return img / 255 * max_value
 
 
 
@@ -453,15 +491,38 @@ def seam_carving_interface(input_path, output_path, DEBUG=True):
         sub_path = output_path.split('.')[0] + '_sub.' + output_path.split('.')[1]
         cv2.imwrite(sub_path, sub)
 
-def seam_carving_raw_interface(input_np, output_np):
+def seam_carving_raw_interface(input_np):
     handle_seam_carving = SeamCarvingRaw()
-    output_np = handle_seam_carving(output_np)
+    output_np = handle_seam_carving(input_np)
     return output_np
+
+
+def test_raw():
+    root = '1_raw.npy'
+    inputs = np.load(root)
+    inputs = inputs[0]
+    name = root.split('.')[0]
+    N, H, W = inputs.shape
+    results = []
+    for i in range(inputs.shape[0]):
+        gray = F.avg_pool2d(torch.from_numpy(inputs[i]).view(1,1,H,W), kernel_size=2, stride=2).squeeze().numpy()
+        print('ori mean:{}'.format(gray.mean()))
+        cv2.imwrite(name+'_ori_{}.jpg'.format(i), gray)
+        output_np = seam_carving_raw_interface(inputs[i])
+        gray = F.avg_pool2d(torch.from_numpy(output_np).view(1,1,H,W), kernel_size=2, stride=2).squeeze().numpy()
+        print('ans mean:{}'.format(gray.mean()))
+        cv2.imwrite(name+'_ans_{}.jpg'.format(i), gray)
+        results.append(output_np)
+        print('finish:{}'.format(i))
+    output_np = np.stack(results, axis=0)
+    print('output_np', output_np.shape)
+    np.save(name+"_misalign.npy", output_np)
 
 
 if __name__ == "__main__":
     #input_path = '/Users/nyz/code/github/seam_carving/data/image_input.png'
-    input_path = 'jun2.jpg'
-    output_path = input_path.split('.')[0]+'_misalign.'+input_path.split('.')[1]
-    seam_carving_interface(input_path, output_path)
-    seam_carving_interface(input_path, output_path)
+    #input_path = 'jun2.jpg'
+    #output_path = input_path.split('.')[0]+'_misalign.'+input_path.split('.')[1]
+    #seam_carving_interface(input_path, output_path)
+    #seam_carving_interface(input_path, output_path)
+    test_raw()
