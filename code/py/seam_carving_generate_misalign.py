@@ -6,6 +6,8 @@ import torch
 import torch.nn.functional as F
 
 
+global viz_save_count
+viz_save_count = 0
 TIME = False
 
 
@@ -21,8 +23,8 @@ def time_log(func):
 
 class SeamCarving(object):
     def __init__(self, energy_func='gradient_L1',
-                 horizontal_change_range=(10, 12),
-                 vertical_change_range=(10, 12)):
+                 horizontal_change_range=(1, 2),
+                 vertical_change_range=(1, 2)):
 
         self.energy_func_dict = {'gradient_L1': self.gradient_L1,
                                  'gradient_canny': self.gradient_canny}
@@ -56,6 +58,8 @@ class SeamCarving(object):
         # path: '0', left down
         #       '1', down
         #       '2', right down
+        if min_num == 0:
+            return []
         H, W = energy.shape
         energy_map = np.copy(energy) + np.random.randn(H, W).clip(-1)+1
         dp_array = np.zeros_like(energy_map)
@@ -177,6 +181,8 @@ class SeamCarving(object):
         # path: '0', left down
         #       '1', down
         #       '2', right down
+        if min_num == 0:
+            return []
         H, W = energy.shape
         energy_map = torch.from_numpy(energy) + torch.randn(H, W).clamp(-1) + 1
         dp_array = energy_map
@@ -256,26 +262,19 @@ class SeamCarving(object):
 
     def visualize_seam(self, origin_img, seams, direction=None):
         assert(isinstance(origin_img, np.ndarray))
+        global viz_save_count
+        viz_save_count += 1
         img = np.copy(origin_img)
         H, W, C = img.shape
-        if direction == 'V':
-            for j in range(len(seams)):
-                for i in range(H):
-                    img[i, seams[j][i], 0] = 0
-                    img[i, seams[j][i], 1] = 0
-                    img[i, seams[j][i], 2] = 255
-        elif direction == 'H':
-            for j in range(len(seams)):
-                for i in range(W):
-                    img[seams[j][i], i, 0] = 0
-                    img[seams[j][i], i, 1] = 0
-                    img[seams[j][i], i, 2] = 255
-        else:
-            raise ValueError
-        cv2.imwrite('seam.png', img)
+        for j in range(len(seams)):
+            for i in range(H):
+                img[i, seams[j][i], 0] = 0
+                img[i, seams[j][i], 1] = 0
+                img[i, seams[j][i], 2] = 255
+        cv2.imwrite('seam{}.png'.format(viz_save_count), img)
 
     @time_log
-    def generate_seams(self, img, vis_direction=None, DEBUG=False, **kwargs):
+    def generate_seams(self, img, vis_direction=None, DEBUG=True, **kwargs):
         energy_map = self.energy_func(img.astype(np.uint8)).astype(np.float32)
         cv2.imwrite('/Users/nyz/Desktop/energy_map.png', energy_map)
         print(energy_map.shape)
@@ -533,10 +532,11 @@ if __name__ == "__main__":
     #seam_carving_interface(input_path, output_path)
     #seam_carving_interface(input_path, output_path)
     #test_raw()
-    input_path = ['/Users/nyz/Desktop/texture_1.jpg', '/Users/nyz/Desktop/texture_2.jpg']
-    output_path = ['/Users/nyz/Desktop/texture_1_output.jpg', '/Users/nyz/Desktop/texture_2_output.jpg']
+    #input_path = ['/Users/nyz/Desktop/texture_1.jpg', '/Users/nyz/Desktop/texture_2.jpg']
+    #output_path = ['/Users/nyz/Desktop/texture_1_output.jpg', '/Users/nyz/Desktop/texture_2_output.jpg']
+    input_path = ['/Users/nyz/code/github/burst-deghost-deblur/code/utils/img/real_same/1.jpeg']
+    output_path = ['/Users/nyz/code/github/burst-deghost-deblur/code/utils/img/real_same/1_seam1.jpeg']
     for i in range(len(input_path)):
-        i+=1
         seam_carving_interface(input_path[i], output_path[i])
         print('finish ', i)
         break
