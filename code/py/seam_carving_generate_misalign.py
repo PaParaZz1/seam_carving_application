@@ -332,16 +332,11 @@ class SeamCarving(object):
             img_expand = np.zeros((H, W+L))
         for h in range(H):
             idx = 0
-            repeat_count = 0
             for i in range(L):
                 val = seams[i][h]
-                img_expand[h, idx+i:val+i+1] = img[h, idx:val+1]
-                if idx == val:
-                    img_expand[h, val+i+1+repeat_count] = np.average(img[h, val:val+2])
-                    repeat_count += 1
-                else:
-                    repeat_count = 0
-                    img_expand[h, val+i+1] = np.average(img[h, val:val+2])
+                if idx != val:
+                    img_expand[h, idx+i:val+i+1] = img[h, idx:val+1]
+                img_expand[h, val+i+1] = (img[h, val] + img[h, val+1])/2.0
                 idx = val
             img_expand[h, idx+L+1:] = img[h, idx+1:]
         if DEBUG:
@@ -365,13 +360,10 @@ class SeamCarving(object):
         horizontal_seams = self.generate_seams(misalign, 'H', min_num=horizontal_change, check_overlap=check_overlap)
         misalign = self.delete_seams(misalign, horizontal_seams)
         misalign = misalign.transpose(1, 0, 2)
-        cv2.imwrite('/Users/nyz/Desktop/forward.png', misalign)
-        print('forward over')
 
         # backward(expand)
         vertical_seams = self.generate_seams(misalign, 'V', min_num=vertical_change, check_overlap=False)
         misalign = self.add_seams(misalign, vertical_seams)
-        cv2.imwrite('/Users/nyz/Desktop/backward_V.png', misalign)
 
         misalign = misalign.transpose(1, 0, 2)
         horizontal_seams = self.generate_seams(misalign, 'H', min_num=horizontal_change, check_overlap=False)
