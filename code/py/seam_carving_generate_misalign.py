@@ -20,9 +20,9 @@ def time_log(func):
 
 
 class SeamCarving(object):
-    def __init__(self, energy_func='gradient_canny',
-                 horizontal_change_range=(5, 8),
-                 vertical_change_range=(5, 8)):
+    def __init__(self, energy_func='gradient_L1',
+                 horizontal_change_range=(10, 12),
+                 vertical_change_range=(10, 12)):
 
         self.energy_func_dict = {'gradient_L1': self.gradient_L1,
                                  'gradient_canny': self.gradient_canny}
@@ -277,6 +277,7 @@ class SeamCarving(object):
     @time_log
     def generate_seams(self, img, vis_direction=None, DEBUG=False, **kwargs):
         energy_map = self.energy_func(img.astype(np.uint8)).astype(np.float32)
+        cv2.imwrite('/Users/nyz/Desktop/energy_map.png', energy_map)
         print(energy_map.shape)
         seams = self.search_path_torch(energy_map, **kwargs)
         #seams = self.search_path(energy_map, **kwargs)
@@ -287,19 +288,29 @@ class SeamCarving(object):
 
     @time_log
     def delete_seams(self, img, seams, flag_constant=0, DEBUG=True):
+        def local_search(arr, idx):
+            if arr[idx].any() == flag_constant:
+                L = len(arr)
+                offset = 1
+                while True:
+                    if idx+offset < L:
+                        if arr[idx+offset].all() != flag_constant:
+                            return idx+offset
+                    if idx-offset >= 0:
+                        if arr[idx-offset].all() != flag_constant:
+                            return idx-offset
+                    offset += 1
+            else:
+                return idx
+
         if len(img.shape) == 3:
             H, W, C = img.shape
         elif len(img.shape) == 2:
             H, W = img.shape
         for item in seams:
             for h in range(H):
-                if img[h, item[h]].any() == flag_constant:
-                    offset = 0
-                    while(img[h, item[h]+offset].any() == flag_constant):
-                        offset += 1
-                    img[h, item[h]+offset] = flag_constant
-                else:
-                    img[h, item[h]] = flag_constant
+                idx = local_search(img[h, :], item[h])
+                img[h, idx] = flag_constant
         delete_idx = np.where(img != flag_constant)
         if len(img.shape) == 3:
             img = img[delete_idx].reshape(H, W-len(seams), 3)
@@ -354,10 +365,13 @@ class SeamCarving(object):
         horizontal_seams = self.generate_seams(misalign, 'H', min_num=horizontal_change, check_overlap=check_overlap)
         misalign = self.delete_seams(misalign, horizontal_seams)
         misalign = misalign.transpose(1, 0, 2)
+        cv2.imwrite('/Users/nyz/Desktop/forward.png', misalign)
+        print('forward over')
 
         # backward(expand)
         vertical_seams = self.generate_seams(misalign, 'V', min_num=vertical_change, check_overlap=False)
         misalign = self.add_seams(misalign, vertical_seams)
+        cv2.imwrite('/Users/nyz/Desktop/backward_V.png', misalign)
 
         misalign = misalign.transpose(1, 0, 2)
         horizontal_seams = self.generate_seams(misalign, 'H', min_num=horizontal_change, check_overlap=False)
@@ -483,6 +497,7 @@ class SeamCarvingRaw(SeamCarving):
 def seam_carving_interface(input_path, output_path, DEBUG=True):
     img = cv2.imread(input_path)
     handle_seam_carving = SeamCarving()
+    print(img.shape)
     output = handle_seam_carving(img)
     cv2.imwrite(output_path, output)
     if DEBUG:
@@ -525,4 +540,11 @@ if __name__ == "__main__":
     #output_path = input_path.split('.')[0]+'_misalign.'+input_path.split('.')[1]
     #seam_carving_interface(input_path, output_path)
     #seam_carving_interface(input_path, output_path)
-    test_raw()
+    #test_raw()
+    input_path = ['/Users/nyz/Desktop/texture_1.jpg', '/Users/nyz/Desktop/texture_2.jpg']
+    output_path = ['/Users/nyz/Desktop/texture_1_output.jpg', '/Users/nyz/Desktop/texture_2_output.jpg']
+    for i in range(len(input_path)):
+        i+=1
+        seam_carving_interface(input_path[i], output_path[i])
+        print('finish ', i)
+        break
