@@ -22,9 +22,9 @@ def time_log(func):
 
 
 class SeamCarving(object):
-    def __init__(self, energy_func='gradient_L1',
-                 horizontal_change_range=(1, 2),
-                 vertical_change_range=(1, 2)):
+    def __init__(self, energy_func='gradient_canny',
+                 horizontal_change_range=(3, 5),
+                 vertical_change_range=(3, 5)):
 
         self.energy_func_dict = {'gradient_L1': self.gradient_L1,
                                  'gradient_canny': self.gradient_canny}
@@ -274,10 +274,8 @@ class SeamCarving(object):
         cv2.imwrite('seam{}.png'.format(viz_save_count), img)
 
     @time_log
-    def generate_seams(self, img, vis_direction=None, DEBUG=True, **kwargs):
+    def generate_seams(self, img, vis_direction=None, DEBUG=False, **kwargs):
         energy_map = self.energy_func(img.astype(np.uint8)).astype(np.float32)
-        cv2.imwrite('/Users/nyz/Desktop/energy_map.png', energy_map)
-        print(energy_map.shape)
         seams = self.search_path_torch(energy_map, **kwargs)
         #seams = self.search_path(energy_map, **kwargs)
         if DEBUG:
@@ -286,7 +284,7 @@ class SeamCarving(object):
         return seams
 
     @time_log
-    def delete_seams(self, img, seams, flag_constant=0, DEBUG=True):
+    def delete_seams(self, img, seams, flag_constant=0, DEBUG=False):
         def local_search(arr, idx):
             if arr[idx].any() == flag_constant:
                 L = len(arr)
@@ -321,7 +319,7 @@ class SeamCarving(object):
         return img
 
     @time_log
-    def add_seams(self, img, seams, DEBUG=True):
+    def add_seams(self, img, seams, DEBUG=False):
         L = len(seams)
         if len(img.shape) == 3:
             H, W, C = img.shape
@@ -335,7 +333,10 @@ class SeamCarving(object):
                 val = seams[i][h]
                 if idx != val:
                     img_expand[h, idx+i:val+i+1] = img[h, idx:val+1]
-                img_expand[h, val+i+1] = (img[h, val] + img[h, val+1])/2.0
+                if val == W-1:
+                    interp_val = img[h, val]
+                else:
+                    interp_val = (img[h, val] + img[h, val+1])/2.0
                 idx = val
             img_expand[h, idx+L+1:] = img[h, idx+1:]
         if DEBUG:
