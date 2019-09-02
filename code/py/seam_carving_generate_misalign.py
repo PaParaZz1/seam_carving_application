@@ -22,9 +22,9 @@ def time_log(func):
 
 
 class SeamCarving(object):
-    def __init__(self, energy_func='gradient_canny',
-                 horizontal_change_range=(3, 5),
-                 vertical_change_range=(3, 5)):
+    def __init__(self, energy_func='gradient_L1',
+                 horizontal_change_range=(14, 15),
+                 vertical_change_range=(14, 15)):
 
         self.energy_func_dict = {'gradient_L1': self.gradient_L1,
                                  'gradient_canny': self.gradient_canny}
@@ -50,11 +50,10 @@ class SeamCarving(object):
         img = np.copy(x)
         img = cv2.GaussianBlur(img, (7, 7), 0)
         canny = cv2.Canny(img, 25, 150)
-        cv2.imwrite('canny.png', canny)
         return canny
 
     @time_log
-    def search_path(self, energy, min_num=3, check_overlap=True, sample_factor=2):
+    def search_path(self, energy, min_num=3, check_overlap=True, sample_factor=1.5):
         # path: '0', left down
         #       '1', down
         #       '2', right down
@@ -62,6 +61,10 @@ class SeamCarving(object):
             return []
         H, W = energy.shape
         energy_map = np.copy(energy) + np.random.randn(H, W).clip(-1)+1
+        sample_num = (int)(min_num*sample_factor)
+        divide_range = W // sample_num - 1
+        for i in range(sample_num):
+            energy_map[:, i*divide_range] = 255*255
         dp_array = np.zeros_like(energy_map)
         path_array = np.zeros_like(energy_map)
 
@@ -158,8 +161,6 @@ class SeamCarving(object):
         dp_array, path_array = min_sum_path_torch(dp_array, path_array)
         #dp_array, path_array = min_sum_path(dp_array, path_array)
 
-        sample_num = (int)(min_num*sample_factor)
-        divide_range = W // sample_num - 1
         min_num_index = []
         for i in range(sample_num):
             min_num_index.append(dp_array[-1, i*divide_range:(i+1)*divide_range].argmin()+i*divide_range)
@@ -185,6 +186,10 @@ class SeamCarving(object):
             return []
         H, W = energy.shape
         energy_map = torch.from_numpy(energy) + torch.randn(H, W).clamp(-1) + 1
+        sample_num = (int)(min_num)
+        divide_range = W // sample_num - 1
+        for i in range(sample_num):
+            energy_map[:, i*divide_range] = 255*255
         dp_array = energy_map
         path_array = torch.zeros_like(energy_map)
 
@@ -335,8 +340,10 @@ class SeamCarving(object):
                     img_expand[h, idx+i:val+i+1] = img[h, idx:val+1]
                 if val == W-1:
                     interp_val = img[h, val]
+                    img_expand[h, val+i+1] = interp_val
                 else:
                     interp_val = (img[h, val] + img[h, val+1])/2.0
+                    img_expand[h, val+i+1] = interp_val
                 idx = val
             img_expand[h, idx+L+1:] = img[h, idx+1:]
         if DEBUG:
@@ -350,6 +357,7 @@ class SeamCarving(object):
         H, W, C = img.shape
 
         misalign = np.copy(img).astype(np.float32) + 0.01
+        #misalign += np.random.normal(0, 1, size=misalign.shape)*15
         vertical_change = np.random.randint(self.vertical_change_range[0], self.vertical_change_range[1])
         horizontal_change = np.random.randint(self.horizontal_change_range[0], self.horizontal_change_range[1])
 
@@ -535,8 +543,12 @@ if __name__ == "__main__":
     #test_raw()
     #input_path = ['/Users/nyz/Desktop/texture_1.jpg', '/Users/nyz/Desktop/texture_2.jpg']
     #output_path = ['/Users/nyz/Desktop/texture_1_output.jpg', '/Users/nyz/Desktop/texture_2_output.jpg']
-    input_path = ['/Users/nyz/code/github/burst-deghost-deblur/code/utils/img/real_same/1.jpeg']
-    output_path = ['/Users/nyz/code/github/burst-deghost-deblur/code/utils/img/real_same/1_seam1.jpeg']
+    #input_path = ['/Users/nyz/code/github/burst-deghost-deblur/code/utils/img/real_same/1.jpeg']
+    #output_path = ['/Users/nyz/code/github/burst-deghost-deblur/code/utils/img/real_same/1_seam1.jpeg']
+    #input_path = ['/Users/nyz/code/github/burst-deghost-deblur/code/utils/IMG_20190902_000753.jpg']
+    #output_path = ['/Users/nyz/code/github/burst-deghost-deblur/code/utils/IMG_20190902_000753_seam.jpg']
+    input_path = ['/Users/nyz/code/github/burst-deghost-deblur/code/utils/AAAI/real.jpeg']
+    output_path = ['/Users/nyz/code/github/burst-deghost-deblur/code/utils/AAAI/real_seam.jpeg']
     for i in range(len(input_path)):
         seam_carving_interface(input_path[i], output_path[i])
         print('finish ', i)
